@@ -140,13 +140,28 @@ defmodule Expert do
   @impl GenLSP
   def handle_continue(:start_project, lsp) do
     state = assigns(lsp).state
-    config = state.configuration
+    project = state.configuration.project
 
     log_info(lsp, "Starting project")
 
-    start_result = Project.Supervisor.start(config.project)
+    lsp =
+      case Project.Supervisor.start(project) do
+        {:ok, _pid} ->
+          state = assigns(lsp).state
+          state = %{state | engine_initialized?: true}
+          lsp = assign(lsp, state: state)
 
-    send(Expert, {:engine_initialized, start_result})
+          log_info(lsp, "Engine initialized")
+
+          lsp
+
+        {:error, reason} ->
+          error_message = initialization_error_message(reason)
+
+          log_error(lsp, error_message)
+
+          lsp
+      end
 
     {:noreply, lsp}
   end
@@ -194,25 +209,6 @@ defmodule Expert do
 
         {:noreply, lsp}
     end
-  end
-
-  def handle_info({:engine_initialized, {:ok, _pid}}, lsp) do
-    state = assigns(lsp).state
-
-    new_state = %{state | engine_initialized?: true}
-
-    lsp = assign(lsp, state: new_state)
-
-    Logger.info("Engine initialized")
-
-    {:noreply, lsp}
-  end
-
-  def handle_info({:engine_initialized, {:error, reason}}, lsp) do
-    error_message = initialization_error_message(reason)
-    log_error(lsp, error_message)
-
-    {:noreply, lsp}
   end
 
   def log_info(lsp \\ get_lsp(), message) do
