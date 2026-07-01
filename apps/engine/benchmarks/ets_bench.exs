@@ -1,85 +1,107 @@
-Mix.install([:benchee])
+Mix.install([{:benchee, "~> 1.5"}])
 
+alias Expert.Search.Store.Backends.Ets
 alias Forge.Project
 
-alias Engine.Search.Store.Backends.Ets
-alias Engine.Search.Store.Backends.Ets.Schema
-alias Engine.Search.Store.Backends.Ets.Schemas
-alias Forge.VM.Versions
+defmodule SearchStoreBenchHelper do
+  alias Engine.Search.Indexer.Source
+  alias Forge.Project
 
-defmodule BenchHelper do
-  def wait_for_registration do
-    case :global.registered_names() do
-      [] ->
-        Process.sleep(100)
-        wait_for_registration()
+  @copies 50
 
-      _ ->
-        :ok
+  def project(name) do
+    root = Path.join(System.tmp_dir!(), "expert-search-store-bench-#{name}")
+    File.rm_rf!(root)
+    File.mkdir_p!(root)
+
+    project = Project.new("file://#{root}")
+    Project.ensure_workspace(project)
+    project
+  end
+
+  def runtime_versions do
+    %{erlang: System.otp_release(), elixir: System.version()}
+  end
+
+  def entries do
+    path = Path.join(__DIR__, "data/enum.ex")
+    source = File.read!(path)
+    {:ok, base_entries} = Source.index(path, source)
+
+    for copy <- 1..@copies,
+        entry <- base_entries do
+      %{entry | id: copied_id(copy, entry.id), path: copied_path(copy)}
     end
-  end
-
-  def random_path(entries) do
-    Enum.random(entries).path
-  end
-
-  def random_id(entries) do
-    Enum.random(entries).id
   end
 
   def random_ids(entries, count) do
     entries
+    |> Enum.reject(&is_nil(&1.id))
     |> Enum.take_random(count)
     |> Enum.map(& &1.id)
   end
+
+  def before_each(backend, project, entries, entries_by_path) do
+    path = entries_by_path |> Map.keys() |> Enum.random()
+    {:ok, _deleted_ids} = backend.apply_index_update(project, Map.fetch!(entries_by_path, path), [])
+
+    %{path: path, ids: random_ids(entries, 50)}
+  end
+
+  def cleanup(project) do
+    File.rm_rf!(Project.workspace_path(project))
+  end
+
+  defp copied_path(copy), do: Path.join(__DIR__, "data/enum_#{copy}.ex")
+
+  defp copied_id(_copy, nil), do: nil
+  defp copied_id(copy, id), do: copy * 1_000_000 + id
 end
 
-cwd = __DIR__
-project = Project.new("file://#{cwd}")
+project = SearchStoreBenchHelper.project("ets")
+runtime_versions = SearchStoreBenchHelper.runtime_versions()
+Forge.Identifier.start()
+{:ok, _application_cache} = Engine.ApplicationCache.start_link([])
+{:ok, _module_loader} = Engine.Module.Loader.start_link([])
+entries = SearchStoreBenchHelper.entries()
+entries_by_path = Enum.group_by(entries, & &1.path)
 
-Engine.set_project(project)
-Project.ensure_workspace(project)
-
-versions = Versions.current()
-indexes_path = Project.workspace_path(project, ["indexes", versions.erlang, versions.elixir])
-data_dir = Path.join(cwd, "data")
-
-File.mkdir_p!(indexes_path)
-File.cp_r!(data_dir, indexes_path)
-
-{:ok, ets} = Ets.start_link(project)
-
-BenchHelper.wait_for_registration()
-Ets.prepare(ets)
-
-entries = Ets.select_all()
+Ets.destroy_all(project)
+{:ok, ets} = Ets.start_link(project, runtime_versions: runtime_versions)
+{:ok, :empty} = Ets.prepare(ets)
+:ok = Ets.replace_all(project, entries)
 
 Benchee.run(
   %{
     "find_by_subject" => fn _ ->
-      Ets.find_by_subject(Enum, :module, :reference)
+      Ets.find_by_subject(project, Enum, :module, :reference)
     end,
     "find_by_subject, type_wildcard" => fn _ ->
-      Ets.find_by_subject(Enum, :_, :reference)
+      Ets.find_by_subject(project, Enum, :_, :reference)
     end,
     "find_by_subject, subtype_wildcard" => fn _ ->
-      Ets.find_by_subject(Enum, :module, :_)
+      Ets.find_by_subject(project, Enum, :module, :_)
     end,
     "find_by_subject, two wildcards" => fn _ ->
-      Ets.find_by_subject(Enum, :_, :_)
+      Ets.find_by_subject(project, Enum, :_, :_)
+    end,
+    "find_by_subject, subject_wildcard" => fn _ ->
+      Ets.find_by_subject(project, :_, :module, :reference)
     end,
     "find_by_references" => fn %{ids: ids} ->
-      Ets.find_by_ids(ids, :module, :_)
+      Ets.find_by_ids(project, ids, :module, :_)
     end,
     "delete_by_path" => fn %{path: path} ->
-      Ets.delete_by_path(path)
+      Ets.delete_by_path(project, path)
     end
   },
   before_each: fn _ ->
-    ids = BenchHelper.random_ids(entries, 50)
-    path = BenchHelper.random_path(entries)
-    %{path: path, ids: ids}
-  end
+    SearchStoreBenchHelper.before_each(Ets, project, entries, entries_by_path)
+  end,
+  warmup: String.to_integer(System.get_env("BENCH_WARMUP", "1")),
+  time: String.to_integer(System.get_env("BENCH_TIME", "2")),
+  memory_time: 0
 )
 
-File.rm_rf(Project.workspace_path(project))
+GenServer.stop(ets)
+SearchStoreBenchHelper.cleanup(project)

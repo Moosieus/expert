@@ -11,6 +11,9 @@ defmodule Expert.Engine.CodeIntelligence.DefinitionTest do
   alias Expert.EngineApi
   alias Expert.EngineNode
   alias Expert.EngineSupervisor
+  alias Expert.Project.Indexer
+  alias Expert.Search.Store
+  alias Expert.Search.Store.Backends.Ets
   alias Forge.Document
 
   @project_compile_timeout :timer.seconds(15)
@@ -55,12 +58,17 @@ defmodule Expert.Engine.CodeIntelligence.DefinitionTest do
     start_supervised!({Document.Store, derive: [analysis: &Forge.Ast.analyze/1]})
     {:ok, _} = start_supervised({EngineSupervisor, project})
     {:ok, _, _} = EngineNode.start(project)
+    start_supervised!({Ets, project})
+
+    start_supervised!({Store, [project, Ets]})
+    start_supervised!({Task.Supervisor, name: Indexer.task_supervisor_name(project)})
+    start_supervised!({Indexer, project})
 
     EngineApi.register_listener(project, self(), [:all])
     EngineApi.schedule_compile(project, true)
 
     assert_receive project_compiled(), @project_compile_timeout
-    assert_receive project_index_ready(), @project_index_timeout
+    assert_receive project_index_ready(project: ^project), @project_index_timeout
 
     %{project: project}
   end
@@ -635,12 +643,12 @@ defmodule Expert.Engine.CodeIntelligence.DefinitionTest do
 
   defp index(project, referenced_uris) when is_list(referenced_uris) do
     entries = Enum.flat_map(referenced_uris, &do_index/1)
-    EngineApi.call(project, Search.Store, :replace, [entries])
+    Store.replace(project, entries)
   end
 
   defp index(project, referenced_uri) do
     entries = do_index(referenced_uri)
-    EngineApi.call(project, Search.Store, :replace, [entries])
+    Store.replace(project, entries)
   end
 
   defp do_index(referenced_uri) do
