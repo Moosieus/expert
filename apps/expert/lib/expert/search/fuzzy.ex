@@ -50,11 +50,9 @@ defmodule Expert.Search.Fuzzy do
   def from_backend(%Project{} = project, backend) do
     mapper = default_mapper()
 
-    case backend.reduce(project, [], fn
-           %Entry{subtype: :definition} = entry, acc -> [mapper.(entry) | acc]
-           _, acc -> acc
-         end) do
-      mapped_items when is_list(mapped_items) ->
+    case backend.definitions_for_fuzzy(project) do
+      entries when is_list(entries) ->
+        mapped_items = Enum.map(entries, mapper)
         {:ok, new(mapped_items, mapper, &stringify/1, build_filter_fn(project), false)}
 
       {:error, _} = error ->
