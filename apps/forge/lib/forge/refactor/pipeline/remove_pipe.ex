@@ -15,7 +15,7 @@ defmodule Forge.Refactor.Pipeline.RemovePipe do
   def refactor(zipper, _) do
     zipper
     |> Zipper.update(fn {:|>, _, [arg, {id, meta, rest}]} ->
-      {id, meta, [arg | rest]}
+      {id, meta, [arg | rest || []]}
     end)
   end
 end
