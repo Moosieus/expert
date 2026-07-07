@@ -1,29 +1,34 @@
 defmodule Expert.Provider.Handlers.CodeActionResolveTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
+  alias Expert.Document.Context
   alias Expert.Provider.Handlers
   alias Forge.Document
+  alias Forge.Project
+  alias GenLSP.Enumerations.ErrorCodes
+  alias GenLSP.Enumerations.LSPErrorCodes
   alias GenLSP.Requests.CodeActionResolve
   alias GenLSP.Structures
 
-  setup do
-    start_supervised!({Document.Store, derive: [analysis: &Forge.Ast.analyze/1]})
-    start_supervised!({Expert.Project.Store, []})
-    Expert.Project.Store.set_projects([])
-    :ok
+  @uri "file:///resolve_test.ex"
+  @text "arg1\n|> foo()\n"
+
+  defp context(version) do
+    document = Document.new(@uri, @text, version)
+    Context.new(@uri, document, Project.new("file:///project"))
   end
 
   defp resolve_request(action) do
     %CodeActionResolve{id: 1, params: action}
   end
 
-  defp deferred_action(uri, data_overrides) do
+  defp deferred_action(data_overrides) do
     data =
       Map.merge(
         %{
           "provider" => "refactor",
           "module" => "Elixir.Forge.Refactor.Pipeline.IntroducePipe",
-          "uri" => uri,
+          "uri" => @uri,
           "version" => 1,
           "range" => %{
             "start" => %{"line" => 1, "character" => 1},
@@ -36,37 +41,96 @@ defmodule Expert.Provider.Handlers.CodeActionResolveTest do
     %Structures.CodeAction{title: "Introduce pipe", kind: "refactor.rewrite", data: data}
   end
 
-  test "rejects actions without a resolvable data payload" do
-    action = %Structures.CodeAction{title: "Some action", data: nil}
-
-    assert {:error, :not_resolvable} =
-             Handlers.CodeActionResolve.handle(resolve_request(action), nil)
+  defp handle(action, context) do
+    Handlers.CodeActionResolve.handle(resolve_request(action), context)
   end
 
-  test "rejects payloads without a document uri" do
-    action = deferred_action(nil, %{"uri" => nil})
+  describe "stale documents" do
+    test "rejects with ContentModified when the document version has moved on" do
+      action = deferred_action(%{"version" => 1})
 
-    assert {:error, :invalid_uri} =
-             Handlers.CodeActionResolve.handle(resolve_request(action), nil)
+      assert {:ok, %GenLSP.ErrorResponse{code: code, message: message}} =
+               handle(action, context(2))
+
+      assert code == LSPErrorCodes.content_modified()
+      assert message =~ "changed"
+    end
   end
 
-  test "rejects resolve when the document version has moved on" do
-    uri = "file:///stale_resolve_test.ex"
-    :ok = Document.Store.open(uri, "x |> foo()\n", 3, "elixir")
+  describe "malformed payloads" do
+    test "rejects a non-integer range with InvalidParams" do
+      action = deferred_action(%{"version" => 1, "range" => %{"start" => "wat"}})
 
-    action = deferred_action(uri, %{"version" => 2})
+      assert {:ok, %GenLSP.ErrorResponse{code: code}} = handle(action, context(1))
+      assert code == ErrorCodes.invalid_params()
+    end
 
-    assert {:error, :stale_code_action} =
-             Handlers.CodeActionResolve.handle(resolve_request(action), nil)
+    test "rejects an out-of-bounds line with InvalidParams" do
+      action =
+        deferred_action(%{
+          "version" => 1,
+          "range" => %{
+            "start" => %{"line" => 9999, "character" => 1},
+            "end" => %{"line" => 9999, "character" => 1}
+          }
+        })
+
+      assert {:ok, %GenLSP.ErrorResponse{code: code}} = handle(action, context(1))
+      assert code == ErrorCodes.invalid_params()
+    end
+
+    test "rejects an out-of-bounds character with InvalidParams" do
+      # line 1 is "arg1" (4 chars); character 9999 is past its end
+      action =
+        deferred_action(%{
+          "version" => 1,
+          "range" => %{
+            "start" => %{"line" => 1, "character" => 9999},
+            "end" => %{"line" => 2, "character" => 1}
+          }
+        })
+
+      assert {:ok, %GenLSP.ErrorResponse{code: code}} = handle(action, context(1))
+      assert code == ErrorCodes.invalid_params()
+    end
+
+    test "rejects a reversed range with InvalidParams" do
+      action =
+        deferred_action(%{
+          "version" => 1,
+          "range" => %{
+            "start" => %{"line" => 2, "character" => 1},
+            "end" => %{"line" => 1, "character" => 1}
+          }
+        })
+
+      assert {:ok, %GenLSP.ErrorResponse{code: code}} = handle(action, context(1))
+      assert code == ErrorCodes.invalid_params()
+    end
+
+    test "rejects a missing module with InvalidParams" do
+      action = deferred_action(%{"version" => 1, "module" => nil})
+
+      assert {:ok, %GenLSP.ErrorResponse{code: code}} = handle(action, context(1))
+      assert code == ErrorCodes.invalid_params()
+    end
   end
 
-  test "rejects payloads with a malformed range" do
-    uri = "file:///bad_range_resolve_test.ex"
-    :ok = Document.Store.open(uri, "x |> foo()\n", 1, "elixir")
+  describe "actions that are not ours" do
+    test "echoes back an action without a resolvable data payload" do
+      action = %Structures.CodeAction{title: "Some other action", data: nil}
 
-    action = deferred_action(uri, %{"range" => %{"start" => "wat"}})
+      assert {:ok, ^action} = handle(action, nil)
+    end
 
-    assert {:error, :invalid_range} =
-             Handlers.CodeActionResolve.handle(resolve_request(action), nil)
+    test "echoes back a foreign action carrying inline edits" do
+      action = %Structures.CodeAction{
+        title: "Quick fix",
+        edit: %Structures.WorkspaceEdit{changes: %{}},
+        data: %{"provider" => "something-else"}
+      }
+
+      assert {:ok, ^action} = handle(action, nil)
+    end
   end
 end

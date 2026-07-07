@@ -173,6 +173,12 @@ defmodule Expert do
   end
 
   defp document_request?(%{text_document: %{uri: _}}), do: true
+
+  # codeAction/resolve echoes back a CodeAction whose document uri lives in the data payload.
+  defp document_request?(%Structures.CodeAction{data: %{"uri" => uri}}) when is_binary(uri) do
+    true
+  end
+
   defp document_request?(_), do: false
 
   def handle_notification(%GenLSP.Notifications.Initialized{}, lsp) do

@@ -143,10 +143,12 @@ defmodule Expert.Provider.Handlers.CodeActionTest do
         params: action
       }
 
-      assert {:ok, %Structures.CodeAction{} = resolved} =
-               Handlers.CodeActionResolve.handle(resolve_request, nil)
-
       uri = action.data["uri"]
+      {:ok, document} = Document.Store.fetch(uri)
+      context = Context.new(uri, document, project)
+
+      assert {:ok, %Structures.CodeAction{} = resolved} =
+               Handlers.CodeActionResolve.handle(resolve_request, context)
 
       assert %Structures.WorkspaceEdit{changes: %{^uri => %Document.Changes{edits: edits}}} =
                resolved.edit
@@ -186,8 +188,14 @@ defmodule Expert.Provider.Handlers.CodeActionTest do
         params: stale_action
       }
 
-      assert {:error, :stale_code_action} =
-               Handlers.CodeActionResolve.handle(resolve_request, nil)
+      uri = action.data["uri"]
+      {:ok, document} = Document.Store.fetch(uri)
+      context = Context.new(uri, document, project)
+
+      assert {:ok, %GenLSP.ErrorResponse{code: code}} =
+               Handlers.CodeActionResolve.handle(resolve_request, context)
+
+      assert code == GenLSP.Enumerations.LSPErrorCodes.content_modified()
     end
   end
 end
