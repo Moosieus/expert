@@ -380,7 +380,8 @@ defmodule Expert.ExpertTest do
       %Document.Range{} = native_range,
       [%CodeAction.Diagnostic{range: %Document.Range{}}] = diagnostics,
       :all,
-      1 ->
+      1,
+      _opts ->
         send(test_pid, {:code_actions, native_range, diagnostics})
         []
     end)

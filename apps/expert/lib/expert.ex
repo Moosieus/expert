@@ -524,6 +524,9 @@ defmodule Expert do
       %Requests.TextDocumentCodeAction{} ->
         {:ok, Handlers.CodeAction}
 
+      %Requests.CodeActionResolve{} ->
+        {:ok, Handlers.CodeActionResolve}
+
       %Requests.TextDocumentCodeLens{} ->
         {:ok, Handlers.CodeLens}
 

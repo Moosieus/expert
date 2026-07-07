@@ -116,23 +116,48 @@ defmodule Forge.Refactor do
     __MODULE__.Variable.UnderscoreNotUsed
   ]
 
-  def available_refactorings(zipper, selection_or_line, execute? \\ false, modules \\ @refactors) do
+  @doc """
+  Lists the refactorings available for the given selection or line.
+  """
+  def list(zipper, selection_or_line, modules \\ @refactors) do
     Enum.reduce(modules, [], fn module, refactorings ->
-      case available_refactoring(module, zipper, selection_or_line, execute?) do
+      case available_refactoring(module, zipper, selection_or_line) do
         nil -> refactorings
         refactoring -> [refactoring | refactorings]
       end
     end)
   end
 
-  defp available_refactoring(module, zipper, selection_or_line, execute?) do
-    if execute? do
-      if refactored = module.execute(zipper, selection_or_line),
-        do: module.refactoring(refactored)
+  @doc """
+  Executes a refactor, returning it with its rewritten AST.
+
+  `module` may be an atom or its string form, but must be one of the known refactorings;
+  arbitrary module names are rejected. Unlike `list/3`, failures are not caught here — a broken
+  rewrite should surface to the caller rather than be silently dropped.
+  """
+  def execute(zipper, selection_or_line, module) do
+    with {:ok, module} <- fetch_module(module),
+         refactored when refactored != nil <- module.execute(zipper, selection_or_line) do
+      {:ok, module.refactoring(refactored)}
     else
-      if module.available?(zipper, selection_or_line),
-        do: module.refactoring()
+      _ -> :error
     end
+  end
+
+  defp fetch_module(module) when is_atom(module) do
+    if module in @refactors, do: {:ok, module}, else: :error
+  end
+
+  defp fetch_module(module_name) when is_binary(module_name) do
+    case Enum.find(@refactors, &(Atom.to_string(&1) == module_name)) do
+      nil -> :error
+      module -> {:ok, module}
+    end
+  end
+
+  defp available_refactoring(module, zipper, selection_or_line) do
+    if module.available?(zipper, selection_or_line),
+      do: module.refactoring()
   rescue
     _ -> nil
   catch

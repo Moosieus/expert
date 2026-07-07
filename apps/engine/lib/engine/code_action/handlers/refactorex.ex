@@ -9,23 +9,41 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
   alias Forge.Refactor
   alias GenLSP.Enumerations
 
+  require Logger
+
   @impl CodeAction.Handler
-  def actions(%Document{} = doc, %Range{} = range, _diagnostics) do
+  def actions(%Document{} = doc, %Range{} = range, _diagnostics, opts \\ []) do
     with {:ok, target} <- line_or_selection(doc, range),
          {:ok, ast} <- Sourceror.parse_string(Document.to_string(doc)) do
-      ast
-      |> Sourceror.Zipper.zip()
-      |> Refactor.available_refactorings(target, true)
-      |> Enum.map(fn refactoring ->
-        Forge.CodeAction.new(
-          doc.uri,
-          refactoring.title,
-          refactoring.kind,
-          ast_to_changes(doc, refactoring.refactored)
-        )
-      end)
+      zipper = Sourceror.Zipper.zip(ast)
+      refactorings = Refactor.list(zipper, target)
+
+      if Keyword.get(opts, :defer_edits?, false) do
+        Enum.map(refactorings, &to_deferred_action(doc, range, &1))
+      else
+        Enum.flat_map(refactorings, &execute_eagerly(doc, zipper, target, &1))
+      end
     else
       _ -> []
+    end
+  end
+
+  @doc """
+  Computes the edits for a single refactoring previously listed with `defer_edits?: true`, as
+  part of the `codeAction/resolve` flow.
+
+  Availability is re-checked against the current document. Rewrite crashes intentionally surface
+  to the caller: they fail only this resolve request, and silently dropping them would hide bugs.
+  """
+  @spec resolve(Document.t(), Range.t(), String.t()) :: {:ok, Changes.t()} | :error
+  def resolve(%Document{} = doc, %Range{} = range, module_name) do
+    with {:ok, target} <- line_or_selection(doc, range),
+         {:ok, ast} <- Sourceror.parse_string(Document.to_string(doc)),
+         {:ok, refactoring} <-
+           ast |> Sourceror.Zipper.zip() |> Refactor.execute(target, module_name) do
+      {:ok, ast_to_changes(doc, refactoring.refactored)}
+    else
+      _ -> :error
     end
   end
 
@@ -34,6 +52,48 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
 
   @impl CodeAction.Handler
   def trigger_kind, do: :all
+
+  defp to_deferred_action(%Document{} = doc, %Range{} = range, refactoring) do
+    data = %{
+      "provider" => "refactor",
+      "module" => Atom.to_string(refactoring.module),
+      "uri" => doc.uri,
+      "version" => doc.version,
+      "range" => %{
+        "start" => %{"line" => range.start.line, "character" => range.start.character},
+        "end" => %{"line" => range.end.line, "character" => range.end.character}
+      }
+    }
+
+    Forge.CodeAction.deferred(doc.uri, refactoring.title, refactoring.kind, data)
+  end
+
+  # Eager fallback for clients without codeAction/resolve support. Each
+  # refactoring is isolated: a broken rewrite loses that one action instead
+  # of failing the whole codeAction request.
+  defp execute_eagerly(doc, zipper, target, refactoring) do
+    case Refactor.execute(zipper, target, refactoring.module) do
+      {:ok, executed} ->
+        [
+          Forge.CodeAction.new(
+            doc.uri,
+            executed.title,
+            executed.kind,
+            ast_to_changes(doc, executed.refactored)
+          )
+        ]
+
+      :error ->
+        []
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "Refactoring #{inspect(refactoring.module)} failed: #{Exception.message(error)}"
+      )
+
+      []
+  end
 
   defp line_or_selection(_, %{
          start: %{line: line, character: char},

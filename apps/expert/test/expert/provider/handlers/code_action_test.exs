@@ -100,4 +100,94 @@ defmodule Expert.Provider.Handlers.CodeActionTest do
       assert {:ok, _actions} = handle(request, project)
     end
   end
+
+  describe "codeAction/resolve" do
+    defp set_resolve_capable_configuration do
+      capabilities = %Structures.ClientCapabilities{
+        text_document: %Structures.TextDocumentClientCapabilities{
+          code_action: %Structures.CodeActionClientCapabilities{
+            resolve_support: %{properties: ["edit"]}
+          }
+        }
+      }
+
+      capabilities
+      |> Expert.Configuration.new("test-client")
+      |> Expert.Configuration.set()
+    end
+
+    defp deferred_refactors(actions) do
+      Enum.filter(
+        actions,
+        &match?(%Structures.CodeAction{data: %{"provider" => "refactor"}}, &1)
+      )
+    end
+
+    test "defers refactor edits and resolves them on demand", %{project: project} do
+      set_resolve_capable_configuration()
+
+      uses_file_path = file_path(project, Path.join("lib", "uses.ex"))
+      {:ok, request} = build_request(uses_file_path, {4, 4}, {4, 4})
+
+      assert {:ok, actions} = handle(request, project)
+
+      deferred = deferred_refactors(actions)
+
+      assert deferred != []
+      assert Enum.all?(deferred, &is_nil(&1.edit))
+
+      action = Enum.find(deferred, &(&1.title == "Introduce pipe")) || hd(deferred)
+
+      resolve_request = %GenLSP.Requests.CodeActionResolve{
+        id: Expert.Protocol.Id.next(),
+        params: action
+      }
+
+      assert {:ok, %Structures.CodeAction{} = resolved} =
+               Handlers.CodeActionResolve.handle(resolve_request, nil)
+
+      uri = action.data["uri"]
+
+      assert %Structures.WorkspaceEdit{changes: %{^uri => %Document.Changes{edits: edits}}} =
+               resolved.edit
+
+      assert edits != []
+    end
+
+    test "keeps eager edits for clients without resolve support", %{project: project} do
+      uses_file_path = file_path(project, Path.join("lib", "uses.ex"))
+      {:ok, request} = build_request(uses_file_path, {4, 4}, {4, 4})
+
+      assert {:ok, actions} = handle(request, project)
+
+      refactors = Enum.filter(actions, &(&1.kind == "refactor.rewrite"))
+
+      assert refactors != []
+      assert Enum.all?(refactors, &(not is_nil(&1.edit)))
+      assert Enum.all?(actions, &is_nil(&1.data))
+    end
+
+    test "rejects resolve for a stale document version", %{project: project} do
+      set_resolve_capable_configuration()
+
+      uses_file_path = file_path(project, Path.join("lib", "uses.ex"))
+      {:ok, request} = build_request(uses_file_path, {4, 4}, {4, 4})
+
+      assert {:ok, actions} = handle(request, project)
+      assert [%Structures.CodeAction{} = action | _] = deferred_refactors(actions)
+
+      stale_action = %Structures.CodeAction{
+        action
+        | data: Map.update!(action.data, "version", &(&1 + 1))
+      }
+
+      resolve_request = %GenLSP.Requests.CodeActionResolve{
+        id: Expert.Protocol.Id.next(),
+        params: stale_action
+      }
+
+      assert {:error, :stale_code_action} =
+               Handlers.CodeActionResolve.handle(resolve_request, nil)
+    end
+  end
 end

@@ -32,9 +32,13 @@ defmodule Engine do
 
   defdelegate list_modules, to: :code, as: :all_available
 
-  defdelegate code_actions(document, range, diagnostics, kinds, trigger_kind),
+  defdelegate code_actions(document, range, diagnostics, kinds, trigger_kind, opts),
     to: CodeAction,
     as: :for_range
+
+  defdelegate resolve_code_action(document, range, module_name),
+    to: CodeAction,
+    as: :resolve_refactor
 
   defdelegate complete(env), to: Engine.Completion, as: :elixir_sense_expand
 
