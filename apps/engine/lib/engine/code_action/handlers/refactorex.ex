@@ -70,7 +70,8 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
   end
 
   # Each refactoring is isolated: a broken rewrite loses that one action instead
-  # of failing the whole codeAction request.
+  # of failing the whole codeAction request. Raises, throws, and exits are all
+  # caught here so one misbehaving refactoring can't take down the listing.
   defp execute_eagerly(doc, zipper, target, refactoring, sourceror_opts) do
     case Refactor.execute(zipper, target, refactoring.module) do
       {:ok, executed} ->
@@ -90,6 +91,13 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
     error ->
       Logger.warning(
         "Refactoring #{inspect(refactoring.module)} failed: #{Exception.message(error)}"
+      )
+
+      []
+  catch
+    kind, reason ->
+      Logger.warning(
+        "Refactoring #{inspect(refactoring.module)} failed (#{kind}): #{inspect(reason)}"
       )
 
       []
