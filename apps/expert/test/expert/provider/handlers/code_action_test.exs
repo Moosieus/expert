@@ -1,6 +1,7 @@
 defmodule Expert.Provider.Handlers.CodeActionTest do
   use ExUnit.Case, async: false
 
+  import Expert.Test.ConfigurationSupport
   import Forge.EngineApi.Messages
   import Forge.Test.Fixtures
 
@@ -102,20 +103,6 @@ defmodule Expert.Provider.Handlers.CodeActionTest do
   end
 
   describe "codeAction/resolve" do
-    defp set_resolve_capable_configuration do
-      capabilities = %Structures.ClientCapabilities{
-        text_document: %Structures.TextDocumentClientCapabilities{
-          code_action: %Structures.CodeActionClientCapabilities{
-            resolve_support: %{properties: ["edit"]}
-          }
-        }
-      }
-
-      capabilities
-      |> Expert.Configuration.new("test-client")
-      |> Expert.Configuration.set()
-    end
-
     defp deferred_refactors(actions) do
       Enum.filter(
         actions,
@@ -124,7 +111,7 @@ defmodule Expert.Provider.Handlers.CodeActionTest do
     end
 
     test "defers refactor edits and resolves them on demand", %{project: project} do
-      set_resolve_capable_configuration()
+      put_resolve_support(%{properties: ["edit"]})
 
       uses_file_path = file_path(project, Path.join("lib", "uses.ex"))
       {:ok, request} = build_request(uses_file_path, {4, 4}, {4, 4})
@@ -170,7 +157,7 @@ defmodule Expert.Provider.Handlers.CodeActionTest do
     end
 
     test "rejects resolve for a stale document version", %{project: project} do
-      set_resolve_capable_configuration()
+      put_resolve_support(%{properties: ["edit"]})
 
       uses_file_path = file_path(project, Path.join("lib", "uses.ex"))
       {:ok, request} = build_request(uses_file_path, {4, 4}, {4, 4})

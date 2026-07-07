@@ -1,6 +1,8 @@
 defmodule Expert.ConfigurationTest do
   use ExUnit.Case, async: false
 
+  import Expert.Test.ConfigurationSupport
+
   alias Expert.Configuration
   alias Expert.Configuration.WorkspaceSymbols
   alias GenLSP.Notifications.WorkspaceDidChangeConfiguration
@@ -232,34 +234,20 @@ defmodule Expert.ConfigurationTest do
   end
 
   describe "client_resolves_code_action_edits?/0" do
-    defp set_config_with_resolve_support(resolve_support) do
-      capabilities = %GenLSP.Structures.ClientCapabilities{
-        text_document: %GenLSP.Structures.TextDocumentClientCapabilities{
-          code_action: %GenLSP.Structures.CodeActionClientCapabilities{
-            resolve_support: resolve_support
-          }
-        }
-      }
-
-      capabilities
-      |> Configuration.new("test-client")
-      |> Configuration.set()
-    end
-
     test "true when the client can resolve the edit property" do
-      set_config_with_resolve_support(%{properties: ["edit"]})
+      put_resolve_support(%{properties: ["edit"]})
 
       assert Configuration.client_resolves_code_action_edits?()
     end
 
     test "false when the client resolves other properties only" do
-      set_config_with_resolve_support(%{properties: ["command"]})
+      put_resolve_support(%{properties: ["command"]})
 
       refute Configuration.client_resolves_code_action_edits?()
     end
 
     test "false when the client declares no resolve support" do
-      set_config_with_resolve_support(nil)
+      put_resolve_support(nil)
 
       refute Configuration.client_resolves_code_action_edits?()
     end

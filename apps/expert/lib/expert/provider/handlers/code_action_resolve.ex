@@ -76,7 +76,7 @@ defmodule Expert.Provider.Handlers.CodeActionResolve do
     end
   end
 
-  # decode_refactor guarantees integer coordinates, but we validate them against
+  # from_refactor_data guarantees integer coordinates, but we validate them against
   # the current document rather than trust them: an out-of-bounds line/character
   # would otherwise crash deep in Document.fragment. Position.new rejects an
   # out-of-range line (valid?: false) but does not check the character against the
