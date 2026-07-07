@@ -320,6 +320,38 @@ defmodule Expert.ExpertTest do
     assert code == GenLSP.Enumerations.ErrorCodes.invalid_request()
   end
 
+  test "codeAction/resolve for a foreign action is echoed back, not routed as a document request" do
+    project = Fixtures.project()
+    lsp = initialize_lsp(project)
+
+    Expert.Project.Store.add_projects([project])
+    Expert.Project.Store.transition(project, :ready)
+
+    # A code action from some other provider, carrying a uri for a document that
+    # is not open. It must not be treated as a document request (which would fail
+    # with "Document could not be loaded"); the resolve handler echoes it back.
+    uri =
+      project
+      |> Forge.Project.root_path()
+      |> Path.join("lib/not_open.ex")
+      |> Forge.Document.Path.to_uri()
+
+    action = %GenLSP.Structures.CodeAction{
+      title: "Some other action",
+      data: %{"provider" => "something-else", "uri" => uri}
+    }
+
+    request = %GenLSP.Requests.CodeActionResolve{
+      id: 1,
+      jsonrpc: "2.0",
+      method: "codeAction/resolve",
+      params: action
+    }
+
+    assert {:reply, %GenLSP.Structures.CodeAction{title: "Some other action"}, ^lsp} =
+             Expert.handle_request(request, lsp)
+  end
+
   test "document request conversion uses the resolved context document as fallback" do
     project = Fixtures.project()
     lsp = initialize_lsp(project)
