@@ -286,5 +286,6 @@ defmodule Expert.Document.Lookup do
   # field (see the note in `Expert.document_request?/1`).
   defp extract_uri(%{data: %{"provider" => "refactor", "uri" => uri}}) when is_binary(uri),
     do: uri
+
   defp extract_uri(_), do: nil
 end

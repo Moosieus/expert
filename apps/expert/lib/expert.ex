@@ -175,8 +175,8 @@ defmodule Expert do
   defp document_request?(%{text_document: %{uri: _}}), do: true
 
   # These code actions carry a document uri in their data payload, so we treat them as document
-  # requests by virtue of that uri (rather than by strict LSP taxonomy). Matched to the "refactor"
-  # provider for now so other requests are unaffected - can be broadened later if desired.
+  # requests by virtue of that uri (rather than by strict LSP taxonomy). Scoped to the "refactor"
+  # provider for now so other requests are unaffected; can be broadened later.
   defp document_request?(%Structures.CodeAction{data: %{"provider" => "refactor", "uri" => uri}})
        when is_binary(uri) do
     true

@@ -38,14 +38,15 @@ defmodule Expert.Provider.Handlers.CodeActionResolve do
   end
 
   # One of our deferred refactor actions, resolved against the current document.
+  # The payload's field schema is owned by Forge.CodeAction.from_refactor_data/1.
   defp resolve(
          %CodeAction{data: %{"provider" => "refactor"} = data} = action,
          %Context{document: document, project: project}
        ) do
-    with :ok <- check_version(document, data["version"]),
-         {:ok, module_name} <- fetch_module(data),
-         {:ok, range} <- build_range(document, data["range"]),
-         {:ok, changes} <- resolve_changes(project, document, range, module_name) do
+    with {:ok, payload} <- Forge.CodeAction.from_refactor_data(data),
+         :ok <- check_version(document, payload.version),
+         {:ok, range} <- build_range(document, payload.range),
+         {:ok, changes} <- resolve_changes(project, document, range, payload.module) do
       edit = %WorkspaceEdit{changes: %{document.uri => changes}}
       {:ok, %CodeAction{action | edit: edit}}
     end
@@ -60,9 +61,6 @@ defmodule Expert.Provider.Handlers.CodeActionResolve do
   defp check_version(%Document{version: version}, version), do: :ok
   defp check_version(_document, _version), do: {:error, :stale_code_action}
 
-  defp fetch_module(%{"module" => module_name}) when is_binary(module_name), do: {:ok, module_name}
-  defp fetch_module(_data), do: {:error, :invalid_data}
-
   defp resolve_changes(project, document, range, module_name) do
     case EngineApi.resolve_code_action(project, document, range, module_name) do
       {:ok, changes} -> {:ok, changes}
@@ -70,23 +68,20 @@ defmodule Expert.Provider.Handlers.CodeActionResolve do
     end
   end
 
-  defp build_range(%Document{} = document, %{"start" => start_map, "end" => end_map}) do
-    with {:ok, start_pos} <- build_position(document, start_map),
-         {:ok, end_pos} <- build_position(document, end_map),
+  defp build_range(document, {start_coord, end_coord}) do
+    with {:ok, start_pos} <- build_position(document, start_coord),
+         {:ok, end_pos} <- build_position(document, end_coord),
          :ok <- validate_order(start_pos, end_pos) do
       {:ok, Range.new(start_pos, end_pos)}
     end
   end
 
-  defp build_range(_document, _range), do: {:error, :invalid_range}
-
-  # Coordinates are the client's round-tripped copy of our own payload, but we
-  # validate them against the current document rather than trust them: an
-  # out-of-bounds line/character would otherwise crash deep in Document.fragment.
-  # Position.new rejects an out-of-range line (valid?: false) but does not check
-  # the character against the line's length, so we bound the character here.
-  defp build_position(document, %{"line" => line, "character" => character})
-       when is_integer(line) and is_integer(character) and character >= 1 do
+  # decode_refactor guarantees integer coordinates, but we validate them against
+  # the current document rather than trust them: an out-of-bounds line/character
+  # would otherwise crash deep in Document.fragment. Position.new rejects an
+  # out-of-range line (valid?: false) but does not check the character against the
+  # line's length, so we bound the character here.
+  defp build_position(document, {line, character}) when character >= 1 do
     case Position.new(document, line, character) do
       %Position{valid?: true, context_line: context_line} = position ->
         if character <= line_length(context_line) + 1 do
@@ -100,7 +95,7 @@ defmodule Expert.Provider.Handlers.CodeActionResolve do
     end
   end
 
-  defp build_position(_document, _position), do: {:error, :invalid_range}
+  defp build_position(_document, _coord), do: {:error, :invalid_range}
 
   defp validate_order(start_pos, end_pos) do
     case Position.compare(start_pos, end_pos) do
@@ -126,7 +121,7 @@ defmodule Expert.Provider.Handlers.CodeActionResolve do
   end
 
   defp error_response(:invalid_data) do
-    invalid_params("The code action was missing required data")
+    invalid_params("The code action carried malformed data")
   end
 
   defp content_modified(message) do

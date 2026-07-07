@@ -4,6 +4,8 @@ defmodule Expert.Provider.Handlers.CodeActionResolveTest do
   alias Expert.Document.Context
   alias Expert.Provider.Handlers
   alias Forge.Document
+  alias Forge.Document.Position
+  alias Forge.Document.Range
   alias Forge.Project
   alias GenLSP.Enumerations.ErrorCodes
   alias GenLSP.Enumerations.LSPErrorCodes
@@ -12,6 +14,7 @@ defmodule Expert.Provider.Handlers.CodeActionResolveTest do
 
   @uri "file:///resolve_test.ex"
   @text "arg1\n|> foo()\n"
+  @module Forge.Refactor.Pipeline.IntroducePipe
 
   defp context(version) do
     document = Document.new(@uri, @text, version)
@@ -22,21 +25,12 @@ defmodule Expert.Provider.Handlers.CodeActionResolveTest do
     %CodeActionResolve{id: 1, params: action}
   end
 
+  # The valid base payload is built through the real encoder so it can't drift
+  # from the schema; malformed cases override individual keys with raw values.
   defp deferred_action(data_overrides) do
-    data =
-      Map.merge(
-        %{
-          "provider" => "refactor",
-          "module" => "Elixir.Forge.Refactor.Pipeline.IntroducePipe",
-          "uri" => @uri,
-          "version" => 1,
-          "range" => %{
-            "start" => %{"line" => 1, "character" => 1},
-            "end" => %{"line" => 1, "character" => 1}
-          }
-        },
-        data_overrides
-      )
+    range = Range.new(%Position{line: 1, character: 1}, %Position{line: 1, character: 1})
+    base = Forge.CodeAction.to_refactor_data(@uri, 1, range, @module)
+    data = Map.merge(base, data_overrides)
 
     %Structures.CodeAction{title: "Introduce pipe", kind: "refactor.rewrite", data: data}
   end
@@ -123,14 +117,14 @@ defmodule Expert.Provider.Handlers.CodeActionResolveTest do
       assert {:ok, ^action} = handle(action, nil)
     end
 
-    test "echoes back a foreign action carrying inline edits" do
+    test "echoes back a foreign action even when a document context is present" do
       action = %Structures.CodeAction{
         title: "Quick fix",
         edit: %Structures.WorkspaceEdit{changes: %{}},
         data: %{"provider" => "something-else"}
       }
 
-      assert {:ok, ^action} = handle(action, nil)
+      assert {:ok, ^action} = handle(action, context(1))
     end
   end
 end

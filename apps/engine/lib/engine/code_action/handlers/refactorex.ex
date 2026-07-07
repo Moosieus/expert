@@ -54,17 +54,7 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
   def trigger_kind, do: :all
 
   defp to_deferred_action(%Document{} = doc, %Range{} = range, refactoring) do
-    data = %{
-      "provider" => "refactor",
-      "module" => Atom.to_string(refactoring.module),
-      "uri" => doc.uri,
-      "version" => doc.version,
-      "range" => %{
-        "start" => %{"line" => range.start.line, "character" => range.start.character},
-        "end" => %{"line" => range.end.line, "character" => range.end.character}
-      }
-    }
-
+    data = Forge.CodeAction.to_refactor_data(doc.uri, doc.version, range, refactoring.module)
     Forge.CodeAction.deferred(doc.uri, refactoring.title, refactoring.kind, data)
   end
 
