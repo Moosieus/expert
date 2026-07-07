@@ -130,14 +130,10 @@ defmodule Expert.Configuration do
   """
   @spec client_resolves_code_action_edits?() :: boolean()
   def client_resolves_code_action_edits? do
-    properties =
-      case client_support(:code_action_resolve) do
-        %{properties: properties} -> properties
-        %{"properties" => properties} -> properties
-        _ -> nil
-      end
-
-    is_list(properties) and "edit" in properties
+    case client_support(:code_action_resolve) do
+      %{properties: properties} when is_list(properties) -> "edit" in properties
+      _ -> false
+    end
   end
 
   @spec log_level() :: lsp_level()

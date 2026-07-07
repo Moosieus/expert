@@ -83,8 +83,10 @@ defmodule Expert.Provider.Handlers.CodeActionResolve do
   # Coordinates are the client's round-tripped copy of our own payload, but we
   # validate them against the current document rather than trust them: an
   # out-of-bounds line/character would otherwise crash deep in Document.fragment.
+  # Position.new rejects an out-of-range line (valid?: false) but does not check
+  # the character against the line's length, so we bound the character here.
   defp build_position(document, %{"line" => line, "character" => character})
-       when is_integer(line) and is_integer(character) and line >= 1 and character >= 1 do
+       when is_integer(line) and is_integer(character) and character >= 1 do
     case Position.new(document, line, character) do
       %Position{valid?: true, context_line: context_line} = position ->
         if character <= line_length(context_line) + 1 do

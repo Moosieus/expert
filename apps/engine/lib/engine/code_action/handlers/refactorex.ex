@@ -21,7 +21,7 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
       if Keyword.get(opts, :defer_edits?, false) do
         Enum.map(refactorings, &to_deferred_action(doc, range, &1))
       else
-        Enum.flat_map(refactorings, &execute_eagerly(doc, zipper, target, &1))
+        execute_all(doc, zipper, target, refactorings)
       end
     else
       _ -> []
@@ -41,7 +41,7 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
          {:ok, ast} <- Sourceror.parse_string(Document.to_string(doc)),
          {:ok, refactoring} <-
            ast |> Sourceror.Zipper.zip() |> Refactor.execute(target, module_name) do
-      {:ok, ast_to_changes(doc, refactoring.refactored)}
+      {:ok, ast_to_changes(doc, refactoring.refactored, sourceror_opts(doc))}
     else
       _ -> :error
     end
@@ -68,10 +68,20 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
     Forge.CodeAction.deferred(doc.uri, refactoring.title, refactoring.kind, data)
   end
 
-  # Eager fallback for clients without codeAction/resolve support. Each
-  # refactoring is isolated: a broken rewrite loses that one action instead
+  # Eager fallback for clients without codeAction/resolve support. The formatter
+  # configuration depends only on the project and file, so it is resolved once
+  # per request and shared across refactorings (and skipped entirely when none
+  # apply, keeping the common empty case off the formatter lookup).
+  defp execute_all(_doc, _zipper, _target, []), do: []
+
+  defp execute_all(doc, zipper, target, refactorings) do
+    sourceror_opts = sourceror_opts(doc)
+    Enum.flat_map(refactorings, &execute_eagerly(doc, zipper, target, &1, sourceror_opts))
+  end
+
+  # Each refactoring is isolated: a broken rewrite loses that one action instead
   # of failing the whole codeAction request.
-  defp execute_eagerly(doc, zipper, target, refactoring) do
+  defp execute_eagerly(doc, zipper, target, refactoring, sourceror_opts) do
     case Refactor.execute(zipper, target, refactoring.module) do
       {:ok, executed} ->
         [
@@ -79,7 +89,7 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
             doc.uri,
             executed.title,
             executed.kind,
-            ast_to_changes(doc, executed.refactored)
+            ast_to_changes(doc, executed.refactored, sourceror_opts)
           )
         ]
 
@@ -107,19 +117,20 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
     |> Sourceror.parse_string(line: start.line, column: start.character)
   end
 
-  defp ast_to_changes(doc, ast) do
+  defp sourceror_opts(doc) do
     {formatter, opts} = CodeMod.Format.formatter_for_file(Engine.get_project(), doc.uri)
 
-    sourceror_opts =
-      Keyword.reject(
-        [
-          formatter: formatter,
-          locals_without_parens: opts[:locals_without_parens] || [],
-          line_length: opts[:line_length]
-        ],
-        fn {_k, v} -> is_nil(v) end
-      )
+    Keyword.reject(
+      [
+        formatter: formatter,
+        locals_without_parens: opts[:locals_without_parens] || [],
+        line_length: opts[:line_length]
+      ],
+      fn {_k, v} -> is_nil(v) end
+    )
+  end
 
+  defp ast_to_changes(doc, ast, sourceror_opts) do
     ast
     |> Sourceror.to_string(sourceror_opts)
     |> then(&CodeMod.Diff.diff(doc, &1))
