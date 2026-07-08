@@ -110,6 +110,16 @@ defmodule Expert.Provider.Handlers.CodeActionTest do
       )
     end
 
+    # build_request opens the document temporarily; on a slow runner that window
+    # can lapse during handle/2's engine round-trip, unloading it before we build
+    # the resolve context. Re-acquire it (open_temporary returns the still-open
+    # doc or re-opens it at the same version) so the context holds a live document
+    # regardless of the store's temporary lifecycle.
+    defp resolve_document(uri) do
+      {:ok, document} = Document.Store.open_temporary(uri)
+      document
+    end
+
     test "defers refactor edits and resolves them on demand", %{project: project} do
       put_resolve_support(%{properties: ["edit"]})
 
@@ -131,8 +141,7 @@ defmodule Expert.Provider.Handlers.CodeActionTest do
       }
 
       uri = action.data["uri"]
-      {:ok, document} = Document.Store.fetch(uri)
-      context = Context.new(uri, document, project)
+      context = Context.new(uri, resolve_document(uri), project)
 
       assert {:ok, %Structures.CodeAction{} = resolved} =
                Handlers.CodeActionResolve.handle(resolve_request, context)
@@ -176,8 +185,7 @@ defmodule Expert.Provider.Handlers.CodeActionTest do
       }
 
       uri = action.data["uri"]
-      {:ok, document} = Document.Store.fetch(uri)
-      context = Context.new(uri, document, project)
+      context = Context.new(uri, resolve_document(uri), project)
 
       assert {:ok, %GenLSP.ErrorResponse{code: code}} =
                Handlers.CodeActionResolve.handle(resolve_request, context)
