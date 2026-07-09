@@ -86,8 +86,8 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
     end
   rescue
     error ->
-      Logger.warning(
-        "Refactoring #{inspect(refactoring.module)} failed: #{Exception.message(error)}"
+      Logger.error(
+        "refactoring #{inspect(refactoring.module)}: #{Exception.message(error)}: #{Exception.format_stacktrace(error)}"
       )
 
       []
