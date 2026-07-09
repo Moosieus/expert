@@ -1,9 +1,8 @@
 defmodule Engine.CodeAction do
   @moduledoc """
-  Handles `textDocument/codeAction` requests, which language server clients frequently send while
-  users are editing. Frequently computing all possible code actions can be expensive due to the
-  hot-path nature, so Language Server Protocol provides a mechanism to deouple the list of
-  possible actions from executing them. See `Expert.Configuration.client_resolves_code_action_edits?/1`.
+  Handles `textDocument/codeAction` requests.
+
+  Language clients frequently emit these while users are editing.
   """
 
   alias Engine.CodeAction.Handlers

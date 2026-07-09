@@ -13,10 +13,6 @@ defmodule Engine.CodeAction.Handler do
 
   The diagnostics come from the request's context: those the client knows to overlap the range,
   which diagnostic-driven handlers match against to offer fixes.
-
-  `opts` carries the request options (see the "Options" section of `Engine.CodeAction.for_range/6`).
-  Code actions that support deferred edits to `codeAction/resolve` honor `defer_edits?`
-  there; the rest ignore `opts` and always return their edits inline.
   """
   @callback actions(Document.t(), Range.t(), [Diagnostic.t()], keyword()) :: [CodeAction.t()]
 

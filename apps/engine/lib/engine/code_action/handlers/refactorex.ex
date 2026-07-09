@@ -31,9 +31,6 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
   @doc """
   Computes the edits for a single refactoring previously listed with `defer_edits?: true`, as
   part of the `codeAction/resolve` flow.
-
-  Availability is re-checked against the current document. Rewrite crashes intentionally surface
-  to the caller: they fail only this resolve request, and silently dropping them would hide bugs.
   """
   @spec resolve(Document.t(), Range.t(), String.t()) :: {:ok, Changes.t()} | :error
   def resolve(%Document{} = doc, %Range{} = range, module_name) do
@@ -91,13 +88,6 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
     error ->
       Logger.warning(
         "Refactoring #{inspect(refactoring.module)} failed: #{Exception.message(error)}"
-      )
-
-      []
-  catch
-    kind, reason ->
-      Logger.warning(
-        "Refactoring #{inspect(refactoring.module)} failed (#{kind}): #{inspect(reason)}"
       )
 
       []
