@@ -87,7 +87,7 @@ defmodule Engine.CodeAction.Handlers.Refactorex do
   rescue
     error ->
       Logger.error(
-        "refactoring #{inspect(refactoring.module)}: #{Exception.message(error)}: #{Exception.format_stacktrace(error)}"
+        "refactor: #{inspect(refactoring.module)}: #{Exception.format(:error, error, __STACKTRACE__)}"
       )
 
       []
