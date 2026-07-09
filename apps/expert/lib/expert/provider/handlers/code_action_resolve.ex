@@ -37,8 +37,6 @@ defmodule Expert.Provider.Handlers.CodeActionResolve do
     end
   end
 
-  # One of our deferred refactor actions, resolved against the current document.
-  # The payload's field schema is owned by Forge.CodeAction.from_refactor_data/1.
   defp resolve(
          %CodeAction{data: %{"provider" => "refactor"} = data} = action,
          %Context{document: document, project: project}
