@@ -134,18 +134,10 @@ defmodule Engine.Completion do
   end
 
   defp fetch_struct_completion_length(env) do
-    # `StructReference.reference_length/1` is the shared authority on what a
-    # struct reference is: detection admits exactly the contexts it accepts, so
-    # anything reaching here as a `:struct` context resolves without crashing.
     case Code.Fragment.cursor_context(env.prefix) do
-      {:struct, context} ->
-        StructReference.reference_length(context)
-
-      {:local_or_var, local_name} ->
-        {:ok, length(local_name)}
-
-      _ ->
-        :error
+      {:struct, context} -> StructReference.reference_length(context)
+      {:local_or_var, local_name} -> {:ok, length(local_name)}
+      _ -> :error
     end
   end
 end

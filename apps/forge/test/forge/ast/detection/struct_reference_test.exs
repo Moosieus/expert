@@ -56,9 +56,6 @@ defmodule Forge.Ast.Detection.StructReferenceTest do
   end
 
   test "is not detected past a lowercase call segment, only through the trailing dot" do
-    # `%Foo.bar` is a remote call carrying a stray `%` and can never be a
-    # struct. Detection holds through `%Foo.` (a valid in-progress reference)
-    # but the range stops at the `.`, so the `bar` positions must be refuted.
     assert_detected ~q[%F«oo.»bar]
   end
 
