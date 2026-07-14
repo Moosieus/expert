@@ -79,6 +79,19 @@ defmodule Forge.Refactor.Pipeline.RemovePipeTest do
     )
   end
 
+  test "removes pipe into parenless call" do
+    assert_refactored(
+      RemovePipe,
+      """
+      #       v
+      arg1 |> foo
+      """,
+      """
+      foo(arg1)
+      """
+    )
+  end
+
   test "ignores range without pipes" do
     assert_ignored(
       RemovePipe,

@@ -389,7 +389,7 @@ defmodule Expert.State do
     code_action_options =
       %GenLSP.Structures.CodeActionOptions{
         code_action_kinds: @supported_code_actions,
-        resolve_provider: false
+        resolve_provider: Configuration.client_resolves_code_action_edits?()
       }
 
     code_lens_options =

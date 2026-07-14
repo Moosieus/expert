@@ -173,6 +173,15 @@ defmodule Expert do
   end
 
   defp document_request?(%{text_document: %{uri: _}}), do: true
+
+  # These code actions carry a document uri in their data payload, so we treat them as document
+  # requests by virtue of that uri (rather than by strict LSP taxonomy). Scoped to the "refactor"
+  # provider for now so other requests are unaffected; can be broadened later.
+  defp document_request?(%Structures.CodeAction{data: %{"provider" => "refactor", "uri" => uri}})
+       when is_binary(uri) do
+    true
+  end
+
   defp document_request?(_), do: false
 
   def handle_notification(%GenLSP.Notifications.Initialized{}, lsp) do
@@ -523,6 +532,9 @@ defmodule Expert do
 
       %Requests.TextDocumentCodeAction{} ->
         {:ok, Handlers.CodeAction}
+
+      %Requests.CodeActionResolve{} ->
+        {:ok, Handlers.CodeActionResolve}
 
       %Requests.TextDocumentCodeLens{} ->
         {:ok, Handlers.CodeLens}

@@ -1,6 +1,8 @@
 defmodule Expert.ConfigurationTest do
   use ExUnit.Case, async: false
 
+  import Expert.Test.ConfigurationSupport
+
   alias Expert.Configuration
   alias Expert.Configuration.WorkspaceSymbols
   alias GenLSP.Notifications.WorkspaceDidChangeConfiguration
@@ -228,6 +230,30 @@ defmodule Expert.ConfigurationTest do
       {:ok, updated} = Configuration.on_change(change)
 
       assert updated.file_log_level == :error
+    end
+  end
+
+  describe "client_resolves_code_action_edits?/0" do
+    test "true when the client can resolve the edit property" do
+      put_resolve_support(%{properties: ["edit"]})
+
+      assert Configuration.client_resolves_code_action_edits?()
+    end
+
+    test "false when the client resolves other properties only" do
+      put_resolve_support(%{properties: ["command"]})
+
+      refute Configuration.client_resolves_code_action_edits?()
+    end
+
+    test "false when the client declares no resolve support" do
+      put_resolve_support(nil)
+
+      refute Configuration.client_resolves_code_action_edits?()
+    end
+
+    test "false with default configuration" do
+      refute Configuration.client_resolves_code_action_edits?()
     end
   end
 

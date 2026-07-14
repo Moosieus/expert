@@ -122,6 +122,20 @@ defmodule Expert.Configuration do
     client_support(get().support, key)
   end
 
+  @doc """
+  Whether the client can lazily resolve a code action's `edit` property via `codeAction/resolve`.
+  When true, the server defers computing refactor edits until an action is actually invoked.
+
+  https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#clientCodeActionResolveOptions
+  """
+  @spec client_resolves_code_action_edits?() :: boolean()
+  def client_resolves_code_action_edits? do
+    case client_support(:code_action_resolve) do
+      %{properties: properties} when is_list(properties) -> "edit" in properties
+      _ -> false
+    end
+  end
+
   @spec log_level() :: lsp_level()
   def log_level do
     get().log_level
