@@ -5,6 +5,7 @@ defmodule Engine.Completion do
   alias Engine.CodeMod.Format
   alias Engine.Module.Loader
   alias Forge.Ast.Analysis
+  alias Forge.Ast.Detection.StructReference
   alias Forge.Ast.Env
   alias Forge.Completion.Candidate
   alias Forge.Document
@@ -134,18 +135,9 @@ defmodule Engine.Completion do
 
   defp fetch_struct_completion_length(env) do
     case Code.Fragment.cursor_context(env.prefix) do
-      {:struct, {:dot, {:alias, struct_name}, []}} ->
-        # add one because of the trailing period
-        {:ok, length(struct_name) + 1}
-
-      {:struct, {:local_or_var, local_name}} ->
-        {:ok, length(local_name)}
-
-      {:struct, struct_name} ->
-        {:ok, length(struct_name)}
-
-      {:local_or_var, local_name} ->
-        {:ok, length(local_name)}
+      {:struct, context} -> StructReference.reference_length(context)
+      {:local_or_var, local_name} -> {:ok, length(local_name)}
+      _ -> :error
     end
   end
 end
