@@ -87,10 +87,11 @@ defmodule Expert.Application do
     buffer_opts =
       cond do
         opts[:stdio] ->
+          {:ok, protocol_device} = Expert.StdioRedirect.install()
           :ok = Expert.Logging.ProjectLogFile.attach()
           :ok = mute_default_log_handler()
           Logger.info("Expert v#{Expert.vsn()} starting on stdio")
-          []
+          [communication: {GenLSP.Communication.Stdio, [device: protocol_device]}]
 
         is_integer(opts[:port]) ->
           :ok = Expert.Logging.ProjectLogFile.attach()
