@@ -87,10 +87,11 @@ defmodule Expert.Application do
     buffer_opts =
       cond do
         opts[:stdio] ->
+          {:ok, protocol_device} = Expert.StdioRedirect.install()
           :ok = Expert.Logging.ProjectLogFile.attach()
           :ok = mute_default_log_handler()
           Logger.info("Expert v#{Expert.vsn()} starting on stdio")
-          []
+          [communication: {GenLSP.Communication.Stdio, [device: protocol_device]}]
 
         is_integer(opts[:port]) ->
           :ok = Expert.Logging.ProjectLogFile.attach()
@@ -120,7 +121,7 @@ defmodule Expert.Application do
     end
 
     children_spec = children(buffer: buffer_opts)
-    opts = [strategy: :one_for_one, name: Expert.Supervisor]
+    opts = [name: Expert.Supervisor, strategy: :one_for_one, auto_shutdown: :any_significant]
 
     Supervisor.start_link(children_spec, opts)
   end
@@ -136,7 +137,11 @@ defmodule Expert.Application do
       {DynamicSupervisor, name: Expert.DynamicSupervisor},
       {GenLSP.Assigns, [name: Expert.Assigns]},
       {Task.Supervisor, name: :expert_task_queue},
-      {GenLSP.Buffer, [name: Expert.Buffer] ++ buffer_opts},
+      Supervisor.child_spec(
+        {GenLSP.Buffer, [name: Expert.Buffer] ++ buffer_opts},
+        restart: :temporary,
+        significant: true
+      ),
       {Expert.Project.Store, []},
       {Expert.EngineBuilds, []},
       hex_cache_child_spec(),
