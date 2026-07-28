@@ -87,11 +87,10 @@ defmodule Expert.Application do
     buffer_opts =
       cond do
         opts[:stdio] ->
-          {:ok, protocol_device} = Expert.StdioRedirect.install()
           :ok = Expert.Logging.ProjectLogFile.attach()
           :ok = mute_default_log_handler()
           Logger.info("Expert v#{Expert.vsn()} starting on stdio")
-          [communication: {GenLSP.Communication.Stdio, [device: protocol_device]}]
+          [communication: {GenLSP.Communication.Stdio, [device: protocol_device()]}]
 
         is_integer(opts[:port]) ->
           :ok = Expert.Logging.ProjectLogFile.attach()
@@ -168,6 +167,24 @@ defmodule Expert.Application do
   @doc false
   def document_store_child_spec do
     {Document.Store, derive: [analysis: &Forge.Ast.analyze/1]}
+  end
+
+  # `Expert.StdioRedirect` is installed by the `-user` flag in rel/vm.args.eex. Without
+  # it, `:stdio` is shared with the rest of the VM and any stray write corrupts the
+  # protocol stream, so say so rather than failing later and cryptically.
+  defp protocol_device do
+    case Expert.StdioRedirect.protocol_device() do
+      device when is_pid(device) ->
+        device
+
+      nil ->
+        IO.puts(:stderr, """
+        WARNING: booted without `-user #{inspect(Expert.StdioRedirect)}`, so stdout is \
+        shared with the rest of the VM. Any write to it will corrupt the LSP connection.\
+        """)
+
+        :stdio
+    end
   end
 
   defp mute_default_log_handler do

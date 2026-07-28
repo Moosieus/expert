@@ -10,3 +10,9 @@
 ## Enable deployment without epmd
 ## (requires changing both vm.args and remote.vm.args)
 -start_epmd false -epmd_module Elixir.XPForge.EPMD
+
+## Reserve stdout for the LSP protocol, sending every other write to stderr.
+## `-user` is undocumented: it makes `user_sup` call `Elixir.XPExpert.StdioRedirect.start/0`
+## instead of starting `user_drv` itself. Must come AFTER any -noshell/-noinput/-oldshell,
+## as `user_sup:check_flags/3` keeps only the last of them.
+-user Elixir.XPExpert.StdioRedirect

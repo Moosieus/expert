@@ -1,64 +1,73 @@
 defmodule Expert.StdioRedirect do
   @moduledoc """
-  An IO server used to redirect all would-be `:stdio` writes to `:stderr`, allowing GenLSP exclusive access to `:stdio`.
+  Reserves `:stdio` for the LSP protocol, sending everything else to `:standard_error`.
+
+  Installed with the (undocumented) `-user` emulator flag, which makes OTP call
+  `start/0` in place of starting `user_drv` itself. We start `user_drv` anyway, so it
+  still owns fd 0/1 and does all of the tty work, and keep its I/O server as the
+  protocol device. A device forwarding to `:standard_error` is registered as `:user`
+  in its stead.
+
+  This runs inside `kernel_sup`, before `application_controller` and any application,
+  so nothing has captured a group leader yet. Later processes resolve `:user` by name
+  and find the forwarder, which means no group leaders have to be moved.
   """
 
   @protocol_device {__MODULE__, :protocol_device}
+  @reads [:get_chars, :get_line, :get_until, :get_password]
 
   @doc """
-  Swaps the boot-time `:user` process (the normal I/O device for `:stdio`) with one that writes
-  output to `:standard_error` instead, and returns the PID for the original `:user`.
+  The device owning `:stdio`, or `nil` when booted without `-user`.
   """
-  @spec install() :: {:ok, pid()} | {:error, term()}
-  def install do
-    case protocol_device() do
-      device when is_pid(device) -> {:ok, device}
-      nil -> do_install()
-    end
-  end
+  @spec protocol_device() :: pid() | nil
+  def protocol_device, do: :persistent_term.get(@protocol_device, nil)
 
-  defp do_install do
-    case Process.whereis(:user) do
-      protocol_device when is_pid(protocol_device) ->
-        redirect = start()
+  @doc """
+  Entry point for the `-user` boot flag, invoked by `user_sup` rather than directly.
+  """
+  @spec start() :: pid()
+  def start do
+    _ = :user_drv.start(%{initial_shell: :noshell, input: :cooked})
 
-        :io.setopts(protocol_device, binary: true, encoding: :latin1)
-
-        swap_user(redirect)
-        redirect_group_leaders(redirect)
-
-        :persistent_term.put(@protocol_device, protocol_device)
-        {:ok, protocol_device}
-
-      _ ->
-        {:error, :no_user_device}
-    end
-  end
-
-  defp swap_user(redirect) do
-    case Process.whereis(:user) do
-      nil -> :ok
-      _pid -> Process.unregister(:user)
+    if device = await_user(100) do
+      :persistent_term.put(@protocol_device, device)
+      Process.unregister(:user)
     end
 
+    redirect = spawn(&loop/0)
     Process.register(redirect, :user)
+    redirect
   end
 
-  defp redirect_group_leaders(redirect) do
-    :erlang.group_leader(redirect, self())
+  # `user_drv` registers its I/O server as `:user` asynchronously.
+  defp await_user(0), do: nil
 
-    case Process.whereis(:application_controller) do
-      pid when is_pid(pid) -> :erlang.group_leader(redirect, pid)
-      _ -> :ok
+  defp await_user(attempts) do
+    case Process.whereis(:user) do
+      device when is_pid(device) ->
+        device
+
+      nil ->
+        Process.sleep(10)
+        await_user(attempts - 1)
     end
   end
-
-  defp protocol_device, do: :persistent_term.get(@protocol_device, nil)
-
-  defp start, do: spawn(fn -> loop() end)
 
   defp loop do
     receive do
+      # `:standard_error` only understands a handful of options, and would answer
+      # `{:error, :enotsup}` to the `[binary: true]` Elixir itself sets on boot.
+      {:io_request, from, reply_as, {:setopts, _opts}} ->
+        reply(from, reply_as, :ok)
+
+      {:io_request, from, reply_as, :getopts} ->
+        reply(from, reply_as, binary: true, encoding: :latin1)
+
+      {:io_request, from, reply_as, request} when elem(request, 0) in @reads ->
+        reply(from, reply_as, :eof)
+
+      # `:standard_error` answers the original caller itself, which is legal because
+      # clients match replies on the reference alone.
       {:io_request, _from, _reply_as, _request} = request ->
         send(:standard_error, request)
         loop()
@@ -66,5 +75,10 @@ defmodule Expert.StdioRedirect do
       _ignored ->
         loop()
     end
+  end
+
+  defp reply(from, reply_as, reply) do
+    send(from, {:io_reply, reply_as, reply})
+    loop()
   end
 end
