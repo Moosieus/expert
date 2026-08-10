@@ -120,7 +120,9 @@ defmodule Expert.MixProject do
       {:engine, path: "../engine", only: [:test]},
       {:exqlite, "~> 0.36.0"},
       {:forge, path: "../forge"},
-      {:gen_lsp, "~> 0.11.3"},
+      # Fork carrying the `:device` option that Expert.StdioRedirect needs.
+      {:gen_lsp,
+       github: "Moosieus/gen_lsp", branch: "cam/pluggable-stdio-device", override: true},
       {:hex_core, "~> 0.10"},
       {:jason, "~> 1.4"},
       {:patch, "~> 0.15", runtime: false, only: [:dev, :test]},

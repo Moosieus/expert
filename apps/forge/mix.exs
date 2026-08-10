@@ -42,7 +42,9 @@ defmodule Forge.MixProject do
       Mix.Credo.dependency(),
       Mix.Dialyzer.dependency(),
       {:deps_nix, "~> 3.0", only: :dev},
-      {:gen_lsp, "~> 0.11.3"},
+      # Fork carrying the `:device` option that Expert.Stdio isolation needs.
+      {:gen_lsp,
+       github: "Moosieus/gen_lsp", branch: "cam/pluggable-stdio-device", override: true},
       {:logger_backends, "~> 1.0"},
       {:sourceror, "~> 1.12.2"},
       {:spitfire, "~> 0.3.5"},
